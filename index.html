@@ -802,7 +802,9 @@ function createSlotElement(index) {
     const url = URL.createObjectURL(zipBlob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'wave_editor_output.zip';
+    const level = document.getElementById('prefixLevel').value;
+    const unit = document.getElementById('prefixUnit').value;
+    a.download = level + '_U' + unit + '_processed.zip';
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   });
