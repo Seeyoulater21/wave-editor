@@ -246,6 +246,7 @@
 <div id="globalActions">
   <button class="primary" id="btnProcessAll">Process All</button>
   <button id="btnDownloadZip">Download All ZIP</button>
+  <button id="btnClearAll" style="border-color:#c44;color:#c44;">Clear All</button>
 </div>
 
 <div id="batchDropZone" class="batch-drop-zone">
@@ -804,6 +805,27 @@ function createSlotElement(index) {
     a.download = 'wave_editor_output.zip';
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
+  });
+
+  // Clear All button
+  document.getElementById('btnClearAll').addEventListener('click', function () {
+    stopPlayback();
+    for (let i = 0; i < SLOT_COUNT; i++) {
+      slots[i].file = null;
+      slots[i].fileName = '';
+      slots[i].originalBuffer = null;
+      slots[i].processedBuffer = null;
+      slots[i].processedWavBlob = null;
+      const el = document.getElementById('slot-' + i);
+      el.querySelector('.slot-filename').textContent = 'No file';
+      el.querySelector('.waveforms').style.display = 'none';
+      el.querySelector('.slot-actions').style.display = 'none';
+      const status = el.querySelector('.status-msg');
+      if (status) status.textContent = '';
+      // Reset drop zone file input
+      const fileInput = el.querySelector('input[type="file"]');
+      if (fileInput) fileInput.value = '';
+    }
   });
 })();
 </script>
