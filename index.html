@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wave Editor</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      background: #f4f4f4;
+      color: #222;
+      padding: 16px;
+    }
+
+    h1 {
+      font-size: 20px;
+      margin-bottom: 12px;
+    }
+
+    #settingsPanel {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 24px;
+      align-items: center;
+    }
+
+    #settingsPanel label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #settingsPanel input[type="number"] {
+      width: 64px;
+      padding: 3px 6px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+
+    #settingsPanel input[type="range"] {
+      width: 120px;
+    }
+
+    #globalActions {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    button {
+      padding: 6px 14px;
+      border: 1px solid #bbb;
+      border-radius: 4px;
+      background: #fff;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    button:hover { background: #eee; }
+    button:active { background: #e0e0e0; }
+
+    button.primary {
+      background: #4a90d9;
+      color: #fff;
+      border-color: #3a7dc9;
+    }
+
+    button.primary:hover { background: #3a7dc9; }
+
+    .batch-drop-zone {
+      border: 2px dashed #4a90d9;
+      border-radius: 6px;
+      padding: 24px;
+      text-align: center;
+      color: #4a90d9;
+      font-size: 14px;
+      margin-bottom: 16px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .batch-drop-zone.drag-over {
+      background: #eaf3fb;
+      border-color: #2a6ab9;
+    }
+
+    #slotsContainer {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+      gap: 12px;
+    }
+
+    .slot {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 10px 12px;
+    }
+
+    .slot-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .slot-number {
+      font-weight: bold;
+      color: #888;
+      min-width: 24px;
+    }
+
+    .slot-filename {
+      font-size: 12px;
+      color: #555;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+
+    .drop-zone {
+      border: 2px dashed #ccc;
+      border-radius: 4px;
+      padding: 10px;
+      text-align: center;
+      color: #aaa;
+      font-size: 12px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      position: relative;
+    }
+
+    .drop-zone.drag-over {
+      border-color: #4a90d9;
+      background: #eaf3fb;
+      color: #4a90d9;
+    }
+
+    .drop-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .waveforms {
+      margin-top: 8px;
+      display: none;
+    }
+
+    .waveform-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+
+    .waveform-label {
+      font-size: 11px;
+      color: #888;
+      width: 60px;
+      flex-shrink: 0;
+    }
+
+    canvas {
+      border: 1px solid #e0e0e0;
+      border-radius: 3px;
+      display: block;
+    }
+
+    .slot-actions {
+      display: none;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .slot-actions button {
+      font-size: 12px;
+      padding: 4px 10px;
+    }
+
+    .status-msg {
+      font-size: 11px;
+      color: #888;
+      margin-top: 4px;
+      min-height: 14px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>Wave Editor</h1>
+
+<div id="settingsPanel">
+  <label>
+    Lead (s):
+    <input type="number" id="leadSilence" value="0.5" min="0" step="0.1" />
+  </label>
+  <label>
+    Gap (s):
+    <input type="number" id="gapDuration" value="1.0" min="0" step="0.1" />
+  </label>
+  <label>
+    Trail (s):
+    <input type="number" id="trailSilence" value="0.5" min="0" step="0.1" />
+  </label>
+  <label>
+    Silence Threshold: <span id="thresholdDisplay">2</span>%
+    <input type="range" id="threshold" min="0.5" max="10" step="0.5" value="2" />
+  </label>
+</div>
+
+<div id="globalActions">
+  <button class="primary" id="btnProcessAll">Process All</button>
+  <button id="btnDownloadZip">Download All ZIP</button>
+</div>
+
+<div id="batchDropZone" class="batch-drop-zone">
+  Drop multiple WAV files here to load them into available slots
+</div>
+
+<div id="slotsContainer"></div>
+
+<script>
+'use strict';
+
+const SLOT_COUNT = 20;
+const SAMPLE_RATE = 44100;
+const NUM_CHANNELS = 2;
+const BIT_DEPTH = 16;
+
+let audioCtx = null;
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
+  return audioCtx;
+}
+
+const slots = Array.from({ length: SLOT_COUNT }, () => ({
+  file: null,
+  fileName: '',
+  originalBuffer: null,
+  processedBuffer: null,
+  processedWavBlob: null
+}));
+
+function getSettings() {
+  return {
+    lead: parseFloat(document.getElementById('leadSilence').value) || 0.5,
+    gap: parseFloat(document.getElementById('gapDuration').value) || 1.0,
+    trail: parseFloat(document.getElementById('trailSilence').value) || 0.5,
+    threshold: parseFloat(document.getElementById('threshold').value) || 2,
+  };
+}
+
+// ------------------------------------------------------------
+// encodeWAV — converts an AudioBuffer to a PCM 16-bit stereo WAV Blob
+// ------------------------------------------------------------
+function encodeWAV(audioBuffer) {
+  const numChannels = NUM_CHANNELS;
+  const sampleRate = SAMPLE_RATE;
+  const numFrames = audioBuffer.length;
+  const bytesPerSample = BIT_DEPTH / 8;
+  const blockAlign = numChannels * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = numFrames * blockAlign;
+  const bufferSize = 44 + dataSize;
+
+  const arrayBuf = new ArrayBuffer(bufferSize);
+  const view = new DataView(arrayBuf);
+
+  function writeString(offset, str) {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  }
+
+  // RIFF chunk
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, 'WAVE');
+
+  // fmt sub-chunk
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);        // sub-chunk size
+  view.setUint16(20, 1, true);         // PCM = 1
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, BIT_DEPTH, true);
+
+  // data sub-chunk
+  writeString(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  // Interleaved samples
+  let offset = 44;
+  const channelData = [];
+  for (let c = 0; c < numChannels; c++) {
+    // If the source has fewer channels than needed, reuse the last channel
+    const ch = c < audioBuffer.numberOfChannels ? c : audioBuffer.numberOfChannels - 1;
+    channelData.push(audioBuffer.getChannelData(ch));
+  }
+
+  for (let i = 0; i < numFrames; i++) {
+    for (let c = 0; c < numChannels; c++) {
+      let sample = channelData[c][i];
+      // clamp
+      if (sample > 1) sample = 1;
+      if (sample < -1) sample = -1;
+      // scale to int16
+      const int16 = sample < 0 ? sample * 32768 : sample * 32767;
+      view.setInt16(offset, Math.round(int16), true);
+      offset += 2;
+    }
+  }
+
+  return new Blob([arrayBuf], { type: 'audio/wav' });
+}
+
+// ------------------------------------------------------------
+// detectSpeech — returns {startSample, endSample}
+// ------------------------------------------------------------
+function detectSpeech(buffer, thresholdPercent) {
+  const totalSamples = buffer.length;
+  const chunkSize = 441; // 10ms at 44100 Hz
+
+  // Mix to mono
+  const mono = new Float32Array(totalSamples);
+  const nCh = buffer.numberOfChannels;
+  for (let c = 0; c < nCh; c++) {
+    const data = buffer.getChannelData(c);
+    for (let i = 0; i < totalSamples; i++) mono[i] += data[i];
+  }
+  for (let i = 0; i < totalSamples; i++) mono[i] /= nCh;
+
+  // Compute RMS per chunk
+  const numChunks = Math.ceil(totalSamples / chunkSize);
+  const rms = new Float32Array(numChunks);
+  for (let k = 0; k < numChunks; k++) {
+    const start = k * chunkSize;
+    const end = Math.min(start + chunkSize, totalSamples);
+    let sum = 0;
+    for (let i = start; i < end; i++) sum += mono[i] * mono[i];
+    rms[k] = Math.sqrt(sum / (end - start));
+  }
+
+  // Find peak RMS
+  let peakRms = 0;
+  for (let k = 0; k < numChunks; k++) if (rms[k] > peakRms) peakRms = rms[k];
+
+  const thresh = peakRms * (thresholdPercent / 100);
+
+  // Find first and last chunk above threshold
+  let firstChunk = -1;
+  let lastChunk = -1;
+  for (let k = 0; k < numChunks; k++) {
+    if (rms[k] >= thresh) {
+      if (firstChunk === -1) firstChunk = k;
+      lastChunk = k;
+    }
+  }
+
+  // If no speech found, return entire buffer
+  if (firstChunk === -1) {
+    return { startSample: 0, endSample: totalSamples - 1 };
+  }
+
+  const startSample = firstChunk * chunkSize;
+  const endSample = Math.min(lastChunk * chunkSize + chunkSize - 1, totalSamples - 1);
+  return { startSample, endSample };
+}
+
+// ------------------------------------------------------------
+// assembleBuffer — creates the output: lead + word + gap + word + trail
+// ------------------------------------------------------------
+function assembleBuffer(originalBuffer, startSample, endSample, settings) {
+  const ctx = getAudioCtx();
+  const speechLength = endSample - startSample + 1;
+  const leadSamples = Math.round(settings.lead * SAMPLE_RATE);
+  const gapSamples = Math.round(settings.gap * SAMPLE_RATE);
+  const trailSamples = Math.round(settings.trail * SAMPLE_RATE);
+
+  const totalLength = leadSamples + speechLength + gapSamples + speechLength + trailSamples;
+  const outBuffer = ctx.createBuffer(NUM_CHANNELS, totalLength, SAMPLE_RATE);
+
+  const nCh = originalBuffer.numberOfChannels;
+  for (let c = 0; c < NUM_CHANNELS; c++) {
+    const srcCh = c < nCh ? c : nCh - 1;
+    const src = originalBuffer.getChannelData(srcCh);
+    const dst = outBuffer.getChannelData(c);
+
+    // First copy of speech
+    const pos1 = leadSamples;
+    for (let i = 0; i < speechLength; i++) dst[pos1 + i] = src[startSample + i];
+
+    // Second copy of speech
+    const pos2 = leadSamples + speechLength + gapSamples;
+    for (let i = 0; i < speechLength; i++) dst[pos2 + i] = src[startSample + i];
+  }
+
+  return outBuffer;
+}
+
+// ------------------------------------------------------------
+// drawWaveform — renders waveform onto a canvas
+// ------------------------------------------------------------
+function drawWaveform(canvas, buffer) {
+  const width = canvas.width;
+  const height = canvas.height;
+  const ctx = canvas.getContext('2d');
+
+  ctx.clearRect(0, 0, width, height);
+
+  // Center line
+  ctx.strokeStyle = '#ddd';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, height / 2);
+  ctx.lineTo(width, height / 2);
+  ctx.stroke();
+
+  // Mix channels to mono
+  const totalSamples = buffer.length;
+  const nCh = buffer.numberOfChannels;
+  const mono = new Float32Array(totalSamples);
+  for (let c = 0; c < nCh; c++) {
+    const data = buffer.getChannelData(c);
+    for (let i = 0; i < totalSamples; i++) mono[i] += data[i];
+  }
+  for (let i = 0; i < totalSamples; i++) mono[i] /= nCh;
+
+  // Draw waveform: min/max per pixel
+  ctx.strokeStyle = '#4a90d9';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+
+  for (let x = 0; x < width; x++) {
+    const startIdx = Math.floor((x / width) * totalSamples);
+    const endIdx = Math.floor(((x + 1) / width) * totalSamples);
+    let minVal = 1;
+    let maxVal = -1;
+    for (let i = startIdx; i < endIdx; i++) {
+      if (mono[i] < minVal) minVal = mono[i];
+      if (mono[i] > maxVal) maxVal = mono[i];
+    }
+    const yMin = ((1 - maxVal) / 2) * height;
+    const yMax = ((1 - minVal) / 2) * height;
+    ctx.moveTo(x + 0.5, yMin);
+    ctx.lineTo(x + 0.5, yMax);
+  }
+
+  ctx.stroke();
+}
+
+// ------------------------------------------------------------
+// Playback
+// ------------------------------------------------------------
+let currentSource = null;
+
+function stopPlayback() {
+  if (currentSource) {
+    try { currentSource.stop(); } catch (e) { /* already stopped */ }
+    currentSource = null;
+  }
+}
+
+function playBuffer(audioBuffer) {
+  stopPlayback();
+  const ctx = getAudioCtx();
+  if (ctx.state === 'suspended') ctx.resume();
+  const source = ctx.createBufferSource();
+  source.buffer = audioBuffer;
+  source.connect(ctx.destination);
+  source.start();
+  currentSource = source;
+  source.onended = () => { if (currentSource === source) currentSource = null; };
+}
+
+function playOriginal(index) {
+  const slot = slots[index];
+  if (slot.originalBuffer) playBuffer(slot.originalBuffer);
+}
+
+function playProcessed(index) {
+  const slot = slots[index];
+  if (slot.processedBuffer) playBuffer(slot.processedBuffer);
+}
+
+// ------------------------------------------------------------
+// processSlot
+// ------------------------------------------------------------
+function processSlot(index) {
+  const slot = slots[index];
+  if (!slot.originalBuffer) return;
+
+  const settings = getSettings();
+  const { startSample, endSample } = detectSpeech(slot.originalBuffer, settings.threshold);
+  const processedBuffer = assembleBuffer(slot.originalBuffer, startSample, endSample, settings);
+  slot.processedBuffer = processedBuffer;
+  slot.processedWavBlob = encodeWAV(processedBuffer);
+
+  // Draw processed waveform
+  const el = document.getElementById('slot-' + index);
+  const processedCanvas = el.querySelector('.canvas-processed');
+  drawWaveform(processedCanvas, processedBuffer);
+
+  // Show waveforms and actions
+  el.querySelector('.waveforms').style.display = 'block';
+  el.querySelector('.slot-actions').style.display = 'flex';
+
+  const statusEl = el.querySelector('.status-msg');
+  if (statusEl) {
+    const speechMs = Math.round(((endSample - startSample + 1) / SAMPLE_RATE) * 1000);
+    statusEl.textContent = 'Speech: ' + speechMs + 'ms | Output: ' + (processedBuffer.duration * 1000).toFixed(0) + 'ms';
+  }
+}
+
+// ------------------------------------------------------------
+// downloadOne
+// ------------------------------------------------------------
+function downloadOne(index) {
+  const slot = slots[index];
+  if (!slot.processedWavBlob) return;
+
+  const baseName = slot.fileName.replace(/\.wav$/i, '') || ('slot_' + (index + 1));
+  const outName = baseName + '_processed.wav';
+  const url = URL.createObjectURL(slot.processedWavBlob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = outName;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+// ------------------------------------------------------------
+// loadFile
+// ------------------------------------------------------------
+function loadFile(index, file) {
+  const slot = slots[index];
+  slot.file = file;
+  slot.fileName = file.name;
+
+  const el = document.getElementById('slot-' + index);
+  el.querySelector('.slot-filename').textContent = file.name;
+  const statusEl = el.querySelector('.status-msg');
+  if (statusEl) statusEl.textContent = 'Loading…';
+
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    getAudioCtx().decodeAudioData(e.target.result, function (buffer) {
+      slot.originalBuffer = buffer;
+
+      // Draw original waveform
+      const origCanvas = el.querySelector('.canvas-original');
+      drawWaveform(origCanvas, buffer);
+      el.querySelector('.waveforms').style.display = 'block';
+
+      if (statusEl) statusEl.textContent = 'Loaded — processing…';
+      processSlot(index);
+    }, function () {
+      if (statusEl) statusEl.textContent = 'Error: could not decode audio.';
+    });
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ------------------------------------------------------------
+// createSlotElement
+// ------------------------------------------------------------
+function createSlotElement(index) {
+  const slotDiv = document.createElement('div');
+  slotDiv.className = 'slot';
+  slotDiv.id = 'slot-' + index;
+
+  // Header
+  const header = document.createElement('div');
+  header.className = 'slot-header';
+
+  const numSpan = document.createElement('span');
+  numSpan.className = 'slot-number';
+  numSpan.textContent = (index + 1);
+
+  const nameSpan = document.createElement('span');
+  nameSpan.className = 'slot-filename';
+  nameSpan.textContent = 'No file';
+
+  header.appendChild(numSpan);
+  header.appendChild(nameSpan);
+  slotDiv.appendChild(header);
+
+  // Drop zone
+  const dropZone = document.createElement('div');
+  dropZone.className = 'drop-zone';
+  dropZone.textContent = 'Drop WAV here or click to browse';
+
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = '.wav,audio/wav';
+  fileInput.addEventListener('change', function () {
+    if (fileInput.files && fileInput.files[0]) loadFile(index, fileInput.files[0]);
+  });
+  dropZone.appendChild(fileInput);
+
+  // Drag-and-drop events
+  dropZone.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+  });
+  dropZone.addEventListener('dragleave', function () {
+    dropZone.classList.remove('drag-over');
+  });
+  dropZone.addEventListener('drop', function (e) {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f) loadFile(index, f);
+  });
+
+  slotDiv.appendChild(dropZone);
+
+  // Waveforms (hidden initially)
+  const waveforms = document.createElement('div');
+  waveforms.className = 'waveforms';
+
+  // Original
+  const origRow = document.createElement('div');
+  origRow.className = 'waveform-row';
+  const origLabel = document.createElement('span');
+  origLabel.className = 'waveform-label';
+  origLabel.textContent = 'Original:';
+  const origCanvas = document.createElement('canvas');
+  origCanvas.className = 'canvas-original';
+  origCanvas.width = 400;
+  origCanvas.height = 60;
+  origRow.appendChild(origLabel);
+  origRow.appendChild(origCanvas);
+  waveforms.appendChild(origRow);
+
+  // Processed
+  const procRow = document.createElement('div');
+  procRow.className = 'waveform-row';
+  const procLabel = document.createElement('span');
+  procLabel.className = 'waveform-label';
+  procLabel.textContent = 'Processed:';
+  const procCanvas = document.createElement('canvas');
+  procCanvas.className = 'canvas-processed';
+  procCanvas.width = 400;
+  procCanvas.height = 60;
+  procRow.appendChild(procLabel);
+  procRow.appendChild(procCanvas);
+  waveforms.appendChild(procRow);
+
+  slotDiv.appendChild(waveforms);
+
+  // Action buttons (hidden initially)
+  const actions = document.createElement('div');
+  actions.className = 'slot-actions';
+
+  const btnPlayOrig = document.createElement('button');
+  btnPlayOrig.textContent = 'Play Original';
+  btnPlayOrig.addEventListener('click', function () { playOriginal(index); });
+
+  const btnPlayProc = document.createElement('button');
+  btnPlayProc.textContent = 'Play Processed';
+  btnPlayProc.className = 'primary';
+  btnPlayProc.addEventListener('click', function () { playProcessed(index); });
+
+  const btnStop = document.createElement('button');
+  btnStop.textContent = 'Stop';
+  btnStop.addEventListener('click', stopPlayback);
+
+  const btnReprocess = document.createElement('button');
+  btnReprocess.textContent = 'Re-process';
+  btnReprocess.addEventListener('click', function () { processSlot(index); });
+
+  const btnDownload = document.createElement('button');
+  btnDownload.textContent = 'Download';
+  btnDownload.addEventListener('click', function () { downloadOne(index); });
+
+  actions.appendChild(btnPlayOrig);
+  actions.appendChild(btnPlayProc);
+  actions.appendChild(btnStop);
+  actions.appendChild(btnReprocess);
+  actions.appendChild(btnDownload);
+  slotDiv.appendChild(actions);
+
+  // Status message
+  const statusMsg = document.createElement('div');
+  statusMsg.className = 'status-msg';
+  slotDiv.appendChild(statusMsg);
+
+  return slotDiv;
+}
+
+// ------------------------------------------------------------
+// Init
+// ------------------------------------------------------------
+(function init() {
+  const container = document.getElementById('slotsContainer');
+  for (let i = 0; i < SLOT_COUNT; i++) {
+    container.appendChild(createSlotElement(i));
+  }
+
+  // Threshold slider display
+  const thresholdSlider = document.getElementById('threshold');
+  const thresholdDisplay = document.getElementById('thresholdDisplay');
+  thresholdSlider.addEventListener('input', function () {
+    thresholdDisplay.textContent = thresholdSlider.value;
+  });
+
+  // Batch drop zone — drop multiple files at once
+  const batchDrop = document.getElementById('batchDropZone');
+  batchDrop.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    batchDrop.classList.add('drag-over');
+  });
+  batchDrop.addEventListener('dragleave', function () {
+    batchDrop.classList.remove('drag-over');
+  });
+  batchDrop.addEventListener('drop', function (e) {
+    e.preventDefault();
+    batchDrop.classList.remove('drag-over');
+    const files = Array.from(e.dataTransfer.files).filter(function (f) {
+      return f.name.toLowerCase().endsWith('.wav');
+    });
+    if (files.length === 0) return;
+    // Find next available empty slots
+    let slotIdx = 0;
+    for (let fi = 0; fi < files.length; fi++) {
+      while (slotIdx < SLOT_COUNT && slots[slotIdx].originalBuffer) slotIdx++;
+      if (slotIdx >= SLOT_COUNT) break;
+      loadFile(slotIdx, files[fi]);
+      slotIdx++;
+    }
+  });
+
+  // Process All button
+  document.getElementById('btnProcessAll').addEventListener('click', function () {
+    for (let i = 0; i < SLOT_COUNT; i++) {
+      if (slots[i].originalBuffer) processSlot(i);
+    }
+  });
+
+  // Download All ZIP button
+  document.getElementById('btnDownloadZip').addEventListener('click', async function () {
+    const zip = new JSZip();
+    let count = 0;
+    for (let i = 0; i < SLOT_COUNT; i++) {
+      const slot = slots[i];
+      if (slot.processedWavBlob) {
+        const baseName = slot.fileName.replace(/\.wav$/i, '') || ('slot_' + (i + 1));
+        const outName = baseName + '_processed.wav';
+        const arrayBuf = await slot.processedWavBlob.arrayBuffer();
+        zip.file(outName, arrayBuf);
+        count++;
+      }
+    }
+    if (count === 0) {
+      alert('No processed files to download. Load and process some WAV files first.');
+      return;
+    }
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'wave_editor_output.zip';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  });
+})();
+</script>
+</body>
+</html>
