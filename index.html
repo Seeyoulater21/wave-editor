@@ -46,6 +46,12 @@
       border-radius: 4px;
     }
 
+    #settingsPanel select {
+      padding: 3px 6px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+
     #settingsPanel input[type="range"] {
       width: 120px;
     }
@@ -218,6 +224,22 @@
   <label>
     Silence Threshold: <span id="thresholdDisplay">2</span>%
     <input type="range" id="threshold" min="0.5" max="10" step="0.5" value="2" />
+  </label>
+  <span style="border-left:1px solid #ddd;height:24px;margin:0 4px"></span>
+  <label>
+    Level:
+    <select id="prefixLevel">
+      <option value="P1">P1 (ประถม 1)</option>
+      <option value="P2">P2 (ประถม 2)</option>
+      <option value="P3">P3 (ประถม 3)</option>
+      <option value="P4">P4 (ประถม 4)</option>
+      <option value="P5">P5 (ประถม 5)</option>
+      <option value="P6">P6 (ประถม 6)</option>
+    </select>
+  </label>
+  <label>
+    Unit:
+    <input type="number" id="prefixUnit" value="1" min="1" max="99" style="width:50px" />
   </label>
 </div>
 
@@ -528,12 +550,18 @@ function processSlot(index) {
 // ------------------------------------------------------------
 // downloadOne
 // ------------------------------------------------------------
+function getPrefix() {
+  const level = document.getElementById('prefixLevel').value;
+  const unit = document.getElementById('prefixUnit').value;
+  return level + '_U' + unit + '_';
+}
+
 function downloadOne(index) {
   const slot = slots[index];
   if (!slot.processedWavBlob) return;
 
   const baseName = slot.fileName.replace(/\.wav$/i, '') || ('slot_' + (index + 1));
-  const outName = baseName + '_processed.wav';
+  const outName = getPrefix() + baseName + '_processed.wav';
   const url = URL.createObjectURL(slot.processedWavBlob);
   const a = document.createElement('a');
   a.href = url;
@@ -759,7 +787,7 @@ function createSlotElement(index) {
       const slot = slots[i];
       if (slot.processedWavBlob) {
         const baseName = slot.fileName.replace(/\.wav$/i, '') || ('slot_' + (i + 1));
-        const outName = baseName + '_processed.wav';
+        const outName = getPrefix() + baseName + '_processed.wav';
         const arrayBuf = await slot.processedWavBlob.arrayBuffer();
         zip.file(outName, arrayBuf);
         count++;
